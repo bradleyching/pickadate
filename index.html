@@ -162,6 +162,8 @@
     border-radius: var(--radius); padding: 12px 14px; margin-bottom: 1rem;
     font-size: 14px; color: var(--green600); font-weight: 500;
   }
+
+  .loading { font-size: 14px; color: var(--text3); padding: 0.5rem 0; }
 </style>
 </head>
 <body>
@@ -203,30 +205,46 @@
   <div id="bestBanner" style="display:none" class="best-date-banner"></div>
 
   <div class="results-title">衝突統計</div>
-  <div id="resultsBody"><p class="empty-state">還沒有人填寫，快來第一個！</p></div>
+  <div id="resultsBody"><p class="loading">載入中...</p></div>
 </div>
 
-<script>
-const STORAGE_KEY = 'july_dinner_poll_v2';
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, remove, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyABTJv5Z4jB9sZAe_EXCUm2r9yqbObpO5g",
+  authDomain: "pickadate-69351.firebaseapp.com",
+  databaseURL: "https://pickadate-69351-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "pickadate-69351",
+  storageBucket: "pickadate-69351.firebasestorage.app",
+  messagingSenderId: "197760597296",
+  appId: "1:197760597296:web:5a0778a91d9b7f82f51cf5"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const responsesRef = ref(db, 'responses');
 
 let state = { responses: {} };
 let mySelected = new Set();
 let submitted = false;
 let currentName = '';
 
-async function loadState() {
-  try {
-    const r = await window.storage.get(STORAGE_KEY);
-    if (r && r.value) state = JSON.parse(r.value);
-  } catch(e) {
-    // storage not available — data is session-only
-  }
+// Listen for real-time updates from Firebase
+onValue(responsesRef, (snapshot) => {
+  const data = snapshot.val();
+  state.responses = data || {};
+  renderCalendar();
+  renderResults();
+});
+
+async function saveResponse(name, days) {
+  await set(ref(db, 'responses/' + name), days);
 }
 
-async function saveState() {
-  try {
-    await window.storage.set(STORAGE_KEY, JSON.stringify(state));
-  } catch(e) {}
+async function deleteResponse(name) {
+  await remove(ref(db, 'responses/' + name));
 }
 
 function getJuly2025Days() {
@@ -240,7 +258,8 @@ function getJuly2025Days() {
 function getConflictCount(day) {
   let count = 0;
   for (const name in state.responses) {
-    if (state.responses[name].includes(day)) count++;
+    const arr = state.responses[name];
+    if (Array.isArray(arr) && arr.includes(day)) count++;
   }
   return count;
 }
@@ -248,7 +267,8 @@ function getConflictCount(day) {
 function getVoters(day) {
   const names = [];
   for (const name in state.responses) {
-    if (state.responses[name].includes(day)) names.push(name);
+    const arr = state.responses[name];
+    if (Array.isArray(arr) && arr.includes(day)) names.push(name);
   }
   return names;
 }
@@ -283,7 +303,7 @@ function renderCalendar() {
 
     const voters = getVoters(d);
     const othersVoters = voters.filter(n => n !== currentName);
-    if (othersVoters.length > 0) {
+    if (othersVoters.length > 0 && !isWeekend) {
       const dotRow = document.createElement('div');
       dotRow.className = 'dot-row';
       for (let i = 0; i < Math.min(othersVoters.length, 6); i++) {
@@ -326,10 +346,27 @@ function renderMySelected() {
 
 async function deletePerson(name) {
   if (!confirm(`確定要刪除「${name}」的所有選擇嗎？`)) return;
-  delete state.responses[name];
-  await saveState();
-  renderCalendar();
-  renderResults();
+  await deleteResponse(name);
+}
+
+function buildRespondentList() {
+  const respList = document.createElement('div');
+  respList.className = 'respondents-list';
+  Object.keys(state.responses).forEach(name => {
+    const days = state.responses[name];
+    const row = document.createElement('div');
+    row.className = 'respondent-row';
+    row.innerHTML = `
+      <div class="respondent-info">
+        <div class="respondent-name">${name}</div>
+        <div class="respondent-days">不能去：${Array.isArray(days) && days.length ? days.map(d => `7/${d}`).join('、') : '（無）'}</div>
+      </div>
+      <button class="delete-btn">刪除</button>
+    `;
+    row.querySelector('.delete-btn').addEventListener('click', () => deletePerson(name));
+    respList.appendChild(row);
+  });
+  return respList;
 }
 
 function renderResults() {
@@ -351,70 +388,30 @@ function renderResults() {
     dayCounts.push({ d, count, voters: getVoters(d) });
   }
 
-  // Best days = least conflicts
   const minConflict = Math.min(...dayCounts.map(x => x.count));
   const bestDays = dayCounts.filter(x => x.count === minConflict).slice(0, 5);
-  if (bestDays.length > 0 && total > 0) {
+  if (bestDays.length > 0) {
     const dayStr = bestDays.map(x => `7月${x.d}日（${getDOWLabel(x.d)}）`).join('、');
     banner.style.display = 'block';
-    if (minConflict === 0) {
-      banner.textContent = `🎉 最佳日期（無人衝突）：${dayStr}`;
-    } else {
-      banner.textContent = `✓ 衝突最少（${minConflict} 人不能去）：${dayStr}`;
-    }
+    banner.textContent = minConflict === 0
+      ? `🎉 最佳日期（無人衝突）：${dayStr}`
+      : `✓ 衝突最少（${minConflict} 人不能去）：${dayStr}`;
   } else {
     banner.style.display = 'none';
   }
 
   const sorted = [...dayCounts].filter(x => x.count > 0).sort((a,b) => b.count - a.count);
-  if (sorted.length === 0) {
-    body.innerHTML = `<p class="empty-state" style="margin-bottom:12px">共 <strong>${total}</strong> 人填寫，所有日期都沒有衝突！</p>`;
-    const respList2 = document.createElement('div');
-    respList2.className = 'respondents-list';
-    Object.keys(state.responses).forEach(name => {
-      const days = state.responses[name];
-      const row = document.createElement('div');
-      row.className = 'respondent-row';
-      row.innerHTML = `
-        <div class="respondent-info">
-          <div class="respondent-name">${name}</div>
-          <div class="respondent-days">不能去：${days.map(d => `7/${d}`).join('、') || '（無）'}</div>
-        </div>
-        <button class="delete-btn" data-name="${name}">刪除</button>
-      `;
-      row.querySelector('.delete-btn').addEventListener('click', () => deletePerson(name));
-      respList2.appendChild(row);
-    });
-    body.appendChild(respList2);
-    return;
-  }
 
-  const maxCount = sorted[0].count;
   body.innerHTML = `<p class="empty-state" style="margin-bottom:12px">共 <strong>${total}</strong> 人填寫</p>`;
+  body.appendChild(buildRespondentList());
 
-  // Respondent list with delete buttons
-  const respList = document.createElement('div');
-  respList.className = 'respondents-list';
-  Object.keys(state.responses).forEach(name => {
-    const days = state.responses[name];
-    const row = document.createElement('div');
-    row.className = 'respondent-row';
-    row.innerHTML = `
-      <div class="respondent-info">
-        <div class="respondent-name">${name}</div>
-        <div class="respondent-days">不能去：${days.map(d => `7/${d}`).join('、') || '（無）'}</div>
-      </div>
-      <button class="delete-btn" data-name="${name}">刪除</button>
-    `;
-    row.querySelector('.delete-btn').addEventListener('click', () => deletePerson(name));
-    respList.appendChild(row);
-  });
-  body.appendChild(respList);
+  if (sorted.length === 0) return;
 
   const divider = document.createElement('hr');
   divider.style.cssText = 'border:none;border-top:0.5px solid var(--border);margin:0.75rem 0 1rem';
   body.appendChild(divider);
 
+  const maxCount = sorted[0].count;
   sorted.slice(0, 15).forEach(({ d, count, voters }) => {
     const pct = Math.round((count / maxCount) * 100);
     const barClass = count >= maxCount * 0.7 ? 'bar high' : count >= maxCount * 0.4 ? 'bar mid' : 'bar';
@@ -438,30 +435,20 @@ function renderResults() {
 document.getElementById('submitBtn').addEventListener('click', async () => {
   currentName = document.getElementById('nameInput').value.trim();
   if (!currentName) { alert('請先輸入你的名字！'); return; }
-  if (mySelected.size === 0) { alert('請至少選一個不能參加的日期！\n（如果每天都可以，也可以不選任何日期直接送出。）'); return; }
 
-  state.responses[currentName] = [...mySelected].sort((a,b)=>a-b);
-  await saveState();
+  const days = [...mySelected].sort((a,b)=>a-b);
+  await saveResponse(currentName, days.length ? days : []);
   submitted = true;
 
   document.getElementById('submittedMsg').style.display = 'block';
   document.getElementById('submitBtn').style.display = 'none';
   document.getElementById('nameInput').disabled = true;
-
-  renderCalendar();
-  renderResults();
 });
 
 document.getElementById('nameInput').addEventListener('input', e => {
   currentName = e.target.value.trim();
   renderCalendar();
 });
-
-(async () => {
-  await loadState();
-  renderCalendar();
-  renderResults();
-})();
 </script>
 </body>
 </html>
