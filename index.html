@@ -247,9 +247,9 @@ async function deleteResponse(name) {
   await remove(ref(db, 'responses/' + name));
 }
 
-function getJuly2025Days() {
+function getJuly2026Days() {
   const days = [];
-  const startDow = new Date(2025, 6, 1).getDay();
+  const startDow = new Date(2026, 6, 1).getDay();
   for (let i = 0; i < startDow; i++) days.push(null);
   for (let d = 1; d <= 31; d++) days.push(d);
   return days;
@@ -278,20 +278,20 @@ function totalRespondents() {
 }
 
 function getDOWLabel(d) {
-  return ['日','一','二','三','四','五','六'][new Date(2025, 6, d).getDay()];
+  return ['日','一','二','三','四','五','六'][new Date(2026, 6, d).getDay()];
 }
 
 function renderCalendar() {
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
-  const days = getJuly2025Days();
+  const days = getJuly2026Days();
 
   days.forEach(d => {
     const cell = document.createElement('div');
     cell.className = 'cal-cell';
     if (!d) { cell.classList.add('empty'); grid.appendChild(cell); return; }
 
-    const dow = new Date(2025, 6, d).getDay();
+    const dow = new Date(2026, 6, d).getDay();
     const isWeekend = dow === 0 || dow === 6;
     if (isWeekend) cell.classList.add('weekend');
     if (!isWeekend && mySelected.has(d)) cell.classList.add('selected');
@@ -382,7 +382,7 @@ function renderResults() {
 
   const dayCounts = [];
   for (let d = 1; d <= 31; d++) {
-    const dow = new Date(2025, 6, d).getDay();
+    const dow = new Date(2026, 6, d).getDay();
     if (dow === 0 || dow === 6) continue;
     const count = getConflictCount(d);
     dayCounts.push({ d, count, voters: getVoters(d) });
